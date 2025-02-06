@@ -1,0 +1,25 @@
+# .github/workflows/permissions.yml
+name: Set Script Permissions
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  set-permissions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Make scripts executable
+        run: |
+          chmod +x scripts/setup-dev.sh
+          chmod +x scripts/setup-prod.sh
+      - name: Commit changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add scripts/
+          git commit -m "Set executable permissions" || echo "No changes"
+          git push
