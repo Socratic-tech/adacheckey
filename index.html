@@ -1,3 +1,123 @@
-git init
-git add .
-git commit -m "Initial commit"
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADA Compliance Checker</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8 max-w-4xl">
+        <h1 class="text-3xl font-bold mb-8">Newsletter ADA Compliance Checker</h1>
+        
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="mb-4">
+                <label for="newsletter" class="block text-sm font-medium text-gray-700 mb-2">
+                    Paste Newsletter HTML
+                </label>
+                <textarea 
+                    id="newsletter" 
+                    rows="10" 
+                    class="w-full p-2 border rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Paste your newsletter HTML here..."></textarea>
+            </div>
+            
+            <button 
+                onclick="checkCompliance()" 
+                class="bg-blue-500 text-white px-6 py-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                Check Compliance
+            </button>
+        </div>
+
+        <div id="results" class="mt-8"></div>
+    </div>
+
+    <script>
+        async function checkCompliance() {
+            const html = document.getElementById('newsletter').value;
+            const resultsDiv = document.getElementById('results');
+            
+            resultsDiv.innerHTML = `
+                <div class="animate-pulse flex space-x-4">
+                    <div class="flex-1 space-y-4 py-1">
+                        <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                        <div class="space-y-2">
+                            <div class="h-4 bg-gray-200 rounded"></div>
+                            <div class="h-4 bg-gray-200 rounded w-5/6"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            try {
+                const response = await fetch('/check', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ html }),
+                });
+                
+                const results = await response.json();
+                showResults(results);
+            } catch (error) {
+                showError(error);
+            }
+        }
+
+        function showResults(results) {
+            const resultsDiv = document.getElementById('results');
+            let html = '<div class="space-y-4">';
+            
+            results.forEach(result => {
+                const bgColor = result.passed ? 'bg-green-50' : 'bg-red-50';
+                const borderColor = result.passed ? 'border-green-200' : 'border-red-200';
+                
+                html += `
+                    <div class="rounded-lg ${bgColor} ${borderColor} border p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-medium">${result.url}</h3>
+                            <span class="px-3 py-1 rounded-full text-sm ${
+                                result.passed 
+                                    ? 'bg-green-100 text-green-800' 
+                                    : 'bg-red-100 text-red-800'
+                            }">
+                                ${result.passed ? 'Passed' : 'Issues Found'}
+                            </span>
+                        </div>
+                        ${
+                            result.violations 
+                                ? `<ul class="space-y-2">
+                                    ${result.violations.map(v => `
+                                        <li class="flex items-start">
+                                            <svg class="h-5 w-5 text-red-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                            <span>${v.type}: ${v.element}</span>
+                                        </li>
+                                    `).join('')}
+                                </ul>`
+                                : ''
+                        }
+                        ${
+                            result.error 
+                                ? `<div class="text-red-600 mt-2">${result.error}</div>`
+                                : ''
+                        }
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            resultsDiv.innerHTML = html;
+        }
+
+        function showError(error) {
+            document.getElementById('results').innerHTML = `
+                <div class="bg-red-50 border border-red-200 rounded-lg p-6">
+                    <div class="text-red-600">Error: ${error.message}</div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
