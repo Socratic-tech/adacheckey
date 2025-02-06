@@ -1,0 +1,165 @@
+const express = require('express');
+const puppeteer = require('puppeteer');
+const cors = require('cors');
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public'));
+
+class ADAComplianceChecker {
+    constructor() {
+        this.violations = [];
+    }
+
+    async checkURL(url) {
+        const browser = await puppeteer.launch({
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--single-process'
+            ]
+        });
+        
+        const page = await browser.newPage();
+        await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+
+        const results = await this.runChecks(page);
+        await browser.close();
+        return results;
+    }
+
+    async runChecks(page) {
+        const images = await page.evaluate(() => {
+            return Array.from(document.getElementsByTagName('img')).map(img => ({
+                src: img.src,
+                alt: img.alt
+            }));
+        });
+
+        const ariaElements = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll('[role]')).map(el => ({
+                role: el.getAttribute('role'),
+                hasAriaLabel: el.hasAttribute('aria-label')
+            }));
+        });
+
+        const headings = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+                .map(h => ({
+                    level: parseInt(h.tagName[1]),
+                    text: h.textContent
+                }));
+        });
+
+        const formElements = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll('input, select, textarea'))
+                .map(el => ({
+                    type: el.type || el.tagName.toLowerCase(),
+                    hasLabel: !!el.labels && el.labels.length > 0,
+                    hasAriaLabel: el.hasAttribute('aria-label')
+                }));
+        });
+
+        return this.analyzeResults({
+            images,
+            ariaElements,
+            headings,
+            formElements
+        });
+    }
+
+    analyzeResults(results) {
+        const violations = [];
+
+        results.images.forEach(img => {
+            if (!img.alt) {
+                violations.push({
+                    type: 'Missing alt text',
+                    element: 'img',
+                    src: img.src
+                });
+            }
+        });
+
+        results.ariaElements.forEach(el => {
+            if (!el.hasAriaLabel) {
+                violations.push({
+                    type: 'Missing ARIA label',
+                    element: `Element with role "${el.role}"`
+                });
+            }
+        });
+
+        let previousLevel = 0;
+        results.headings.forEach(heading => {
+            if (heading.level - previousLevel > 1) {
+                violations.push({
+                    type: 'Incorrect heading hierarchy',
+                    details: `Jump from h${previousLevel} to h${heading.level}`
+                });
+            }
+            previousLevel = heading.level;
+        });
+
+        results.formElements.forEach(el => {
+            if (!el.hasLabel && !el.hasAriaLabel) {
+                violations.push({
+                    type: 'Missing form label',
+                    element: el.type
+                });
+            }
+        });
+
+        return violations;
+    }
+}
+
+app.post('/check', async (req, res) => {
+    try {
+        const { html } = req.body;
+        const urlRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>/g;
+        const urls = [];
+        let match;
+        
+        while ((match = urlRegex.exec(html)) !== null) {
+            urls.push(match[1]);
+        }
+
+        const checker = new ADAComplianceChecker();
+        const results = await Promise.all(
+            urls.map(async (url) => {
+                try {
+                    const violations = await checker.checkURL(url);
+                    return {
+                        url,
+                        violations,
+                        passed: violations.length === 0
+                    };
+                } catch (error) {
+                    return {
+                        url,
+                        error: error.message,
+                        passed: false
+                    };
+                }
+            })
+        );
+
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Serve the HTML interface
+app.get('/', (req, res) => {
+    res.sendFile(__dirname + '/public/index.html');
+});
+
+app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+});
